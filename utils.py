@@ -5,7 +5,7 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 #from torch.utils.serialization import load_lua
 import torchfile
 from torch.utils.data import DataLoader
-from networks import Vgg16
+from networks import Vgg16, Vgg19
 from torch.autograd import Variable
 from torch.optim import lr_scheduler
 from torchvision import transforms
@@ -221,21 +221,49 @@ def get_model_list(dirname, key):
     return last_model_name
 
 
-def load_vgg16(model_dir):
+def load_vgg19(model_dir):
     """ Use the model from https://github.com/abhiskk/fast-neural-style/blob/master/neural_style/utils.py """
     if not os.path.exists(model_dir):
         os.mkdir(model_dir)
-    if not os.path.exists(os.path.join(model_dir, 'vgg16.weight')):
-        if not os.path.exists(os.path.join(model_dir, 'vgg16.t7')):
-            os.system('wget https://www.dropbox.com/s/76l3rt4kyi3s8x7/vgg16.t7?dl=1 -O ' + os.path.join(model_dir, 'vgg16.t7'))
-        vgglua = torchfile.load('./models/vgg16.t7')
-        #vgglua = load_lua(os.path.join(model_dir, 'vgg16.t7'))
-        vgg = Vgg16()
-        for (src, dst) in zip(vgglua.parameters()[0], vgg.parameters()):
-            dst.data[:] = src
-        torch.save(vgg.state_dict(), os.path.join(model_dir, 'vgg16.weight'))
-    vgg = Vgg16()
-    vgg.load_state_dict(torch.load(os.path.join(model_dir, 'vgg16.weight')))
+    if not os.path.exists(os.path.join(model_dir, 'vgg19.weight')):
+        # 使用PyTorch官方预训练的VGG19模型
+        vgg = Vgg19()
+        vgg_model = models.vgg19(pretrained=True)
+        features = list(vgg_model.features)
+        
+        # 创建预训练模型到自定义模型的层映射
+        vgg_layers = {
+            '0': 'conv1_1',
+            '2': 'conv1_2',
+            '5': 'conv2_1',
+            '7': 'conv2_2',
+            '10': 'conv3_1',
+            '12': 'conv3_2',
+            '14': 'conv3_3',
+            '16': 'conv3_4',
+            '19': 'conv4_1',
+            '21': 'conv4_2',
+            '23': 'conv4_3',
+            '25': 'conv4_4',
+            '28': 'conv5_1',
+            '30': 'conv5_2',
+            '32': 'conv5_3',
+            '34': 'conv5_4'
+        }
+        
+        # 复制参数
+        for k, v in vgg_layers.items():
+            if hasattr(vgg, v):
+                layer = getattr(vgg, v)
+                source = features[int(k)]
+                if isinstance(source, nn.Conv2d) and isinstance(layer, nn.Conv2d):
+                    layer.weight.data.copy_(source.weight.data)
+                    layer.bias.data.copy_(source.bias.data)
+        
+        torch.save(vgg.state_dict(), os.path.join(model_dir, 'vgg19.weight'))
+    
+    vgg = Vgg19()
+    vgg.load_state_dict(torch.load(os.path.join(model_dir, 'vgg19.weight')))
     return vgg
 
 def load_inception(model_path):
@@ -388,3 +416,9 @@ def pytorch03_to_pytorch04(state_dict_base, trainer_name):
     state_dict['a'] = __conversion_core(state_dict_base['a'], trainer_name)
     state_dict['b'] = __conversion_core(state_dict_base['b'], trainer_name)
     return state_dict
+
+# 保留load_vgg16函数以保持向后兼容性
+def load_vgg16(model_dir):
+    """Legacy function to load VGG16, now delegates to VGG19"""
+    print("Warning: Using VGG19 instead of VGG16")
+    return load_vgg19(model_dir)
